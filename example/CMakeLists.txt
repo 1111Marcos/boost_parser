@@ -33,9 +33,10 @@ add_example(parsing_into_a_struct ${libs})
 add_example(parsing_into_a_class ${libs})
 add_example(user_error_handler ${libs})
 
+add_example(callback_json boost)
+
 if (BUILD_WITH_HANA)
   add_example(roman_numerals boost)
   add_example(self_filling_symbol_table boost)
   add_example(json boost)
-  add_example(callback_json boost)
 endif()
