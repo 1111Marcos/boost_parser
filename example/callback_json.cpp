@@ -3,14 +3,15 @@
 // Distributed under the Boost Software License, Version 1.0. (See
 // accompanying file LICENSE_1_0.txt or copy at
 // http://www.boost.org/LICENSE_1_0.txt)
+//
 //[ extended_callback_parsing_json_example
+//
 #include <boost/parser/parser.hpp>
 #include <boost/parser/transcode_view.hpp>
 
 #include <fstream>
 #include <vector>
 #include <climits>
-
 
 namespace json {
 
@@ -26,7 +27,6 @@ namespace json {
         Iter iter;
     };
 
-
     struct global_state
     {
         int recursive_open_count = 0;
@@ -38,27 +38,45 @@ namespace json {
         int first_surrogate = 0;
     };
 
+    // Start of Rules Block
+    //
+    bp::rule<class ws> 
+	const ws = "whitespace";
 
-    bp::rule<class ws> const ws = "whitespace";
+    bp::rule<class string_char, uint32_t> 
+   	const  string_char = "code point (code points <= U+001F must be escaped)";
 
-    bp::rule<class string_char, uint32_t> const string_char =
-        "code point (code points <= U+001F must be escaped)";
-    bp::rule<class four_hex_digits, uint32_t> const hex_4 =
-        "four hexadecimal digits";
-    bp::rule<class escape_seq, uint32_t> const escape_seq =
-        "\\uXXXX hexadecimal escape sequence";
-    bp::rule<class escape_double_seq, uint32_t, double_escape_locals> const
-        escape_double_seq = "\\uXXXX hexadecimal escape sequence";
-    bp::rule<class single_escaped_char, uint32_t> const single_escaped_char =
-        "'\"', '\\', '/', 'b', 'f', 'n', 'r', or 't'";
+    bp::rule<class four_hex_digits, uint32_t> 
+    	const hex_4 = "four hexadecimal digits";
 
+    bp::rule<class escape_seq, uint32_t> 
+        const escape_seq = "\\uXXXX hexadecimal escape sequence";
+
+    bp::rule<class escape_double_seq, uint32_t, double_escape_locals> 
+        const escape_double_seq = "\\uXXXX hexadecimal escape sequence";
+
+    bp::rule<class single_escaped_char, uint32_t> 
+        const single_escaped_char = "'\"', '\\', '/', 'b', 'f', 'n', 'r', or 't'";
+
+    bp::rule<class object_element_tag> const object_element = "object-element";
+    bp::rule<class object_tag> const object = "object";
+    bp::rule<class array_tag> const array = "array";
+
+    // value no longer produces an attribute, and it has no callback either.
+    // Each individual possible kind of value (string, array, etc.) gets
+    // reported separately.
+    //
+    bp::rule<class value_tag> const value = "value";
+  
+    // Start of Callback Rules Block
+    //
     bp::callback_rule<class null_tag> const null = "null";
 
     // Since we don't create polymorphic values in this parse, we need to be
     // able to report that we parsed a bool, so we need a callback rule for
     // this.
+    //
     bp::callback_rule<class bool_tag, bool> const bool_p = "boolean";
-
     bp::callback_rule<class string_tag, std::string> const string = "string";
     bp::callback_rule<class number_tag, double> const number = "number";
 
@@ -67,29 +85,23 @@ namespace json {
     // the ':' may have many parts.  It may be an array, for example.  This
     // implies that we need to report that we have the string part of the
     // object-element, and that the rest -- the value -- is coming.
-    bp::callback_rule<class object_element_key_tag, std::string> const
-        object_element_key = "string";
-    bp::rule<class object_element_tag> const object_element = "object-element";
+    //
+    bp::callback_rule<class object_element_key_tag, std::string> const object_element_key = "string";
 
     // object gets broken up too, to enable the reporting of the beginning and
     // end of the object when '{' or '}' is parsed, respectively.  The same
     // thing is done for array, below.
+    //
     bp::callback_rule<class object_open_tag> const object_open = "'{'";
     bp::callback_rule<class object_close_tag> const object_close = "'}'";
-    bp::rule<class object_tag> const object = "object";
 
     bp::callback_rule<class array_open_tag> const array_open = "'['";
     bp::callback_rule<class array_close_tag> const array_close = "']'";
-    bp::rule<class array_tag> const array = "array";
+  
 
-    // value no longer produces an attribute, and it has no callback either.
-    // Each individual possible kind of value (string, array, etc.) gets
-    // reported separately.
-    bp::rule<class value_tag> const value = "value";
-
-
-    // Since we use these tag types as function parameters in the callbacks,
+    // Since we utilize these tag types as function parameters in the callbacks,
     // they need to be complete types.
+    //
     class null_tag {};
     class bool_tag {};
     class string_tag {};
@@ -100,20 +112,28 @@ namespace json {
     class array_open_tag {};
     class array_close_tag {};
 
-
-    auto const ws_def = '\x09'_l | '\x0a' | '\x0d' | '\x20';
-
+    // Start of callback functions,
+    // = Some rules utilizes lambda as callback functions, actions.
+    //
     auto first_hex_escape = [](auto & ctx) {
+      
         auto & locals = _locals(ctx);
         uint32_t const cu = _attr(ctx);
+	
         if (!boost::parser::detail::text::high_surrogate(cu))
             _pass(ctx) = false;
         else
-            locals.first_surrogate = cu;
+	{
+	  // auto & locals = _locals(ctx);
+          locals.first_surrogate = cu;
+	}
     };
+
     auto second_hex_escape = [](auto & ctx) {
+
         auto & locals = _locals(ctx);
         uint32_t const cu = _attr(ctx);
+	
         if (!boost::parser::detail::text::low_surrogate(cu)) {
             _pass(ctx) = false;
         } else {
@@ -126,34 +146,8 @@ namespace json {
         }
     };
 
-    bp::parser_interface<bp::uint_parser<uint32_t, 16, 4, 4>> const hex_4_def;
-
-    auto const escape_seq_def = "\\u" > hex_4;
-
-    auto const escape_double_seq_def =
-        escape_seq[first_hex_escape] >> escape_seq[second_hex_escape];
-
-    bp::symbols<uint32_t> const single_escaped_char_def = {
-        {"\"", 0x0022u},
-        {"\\", 0x005cu},
-        {"/", 0x002fu},
-        {"b", 0x0008u},
-        {"f", 0x000cu},
-        {"n", 0x000au},
-        {"r", 0x000du},
-        {"t", 0x0009u}};
-
-    auto const string_char_def = escape_double_seq | escape_seq |
-                                 ('\\'_l > single_escaped_char) |
-                                 (bp::cp - bp::char_(0x0000u, 0x001fu));
-
-    auto const null_def = "null"_l;
-
-    auto const bool_p_def = bp::bool_;
-
-    auto const string_def = bp::lexeme['"' >> *(string_char - '"') > '"'];
-
     auto parse_double = [](auto & ctx) {
+
         auto const cp_range = _attr(ctx);
         auto cp_first = cp_range.begin();
         auto const cp_last = cp_range.end();
@@ -172,6 +166,50 @@ namespace json {
         }
     };
 
+    // The rules definitions starts here.
+    //
+
+    // (1)
+    auto const ws_def = '\x09'_l | '\x0a' | '\x0d' | '\x20';
+
+    // (2)
+    bp::parser_interface<bp::uint_parser<uint32_t, 16, 4, 4>> const hex_4_def;
+
+    // (3)
+    auto const escape_seq_def = "\\u" > hex_4;
+
+    // (4)
+    auto const escape_double_seq_def =
+        escape_seq[first_hex_escape] >> escape_seq[second_hex_escape];
+
+    // (5)
+    bp::symbols<uint32_t>
+        const single_escaped_char_def = {
+          {"\"", 0x0022u},
+          {"\\", 0x005cu},
+          {"/", 0x002fu},
+          {"b", 0x0008u},
+          {"f", 0x000cu},
+          {"n", 0x000au},
+          {"r", 0x000du},
+          {"t", 0x0009u}
+    };
+
+    // (6)
+    auto const string_char_def = escape_double_seq 
+	                         | escape_seq | ('\\'_l > single_escaped_char) 
+				 | (bp::cp - bp::char_(0x0000u, 0x001fu));
+
+    // (7)
+    auto const null_def = "null"_l;
+
+    // (8)
+    auto const bool_p_def = bp::bool_;
+
+    // (9)
+    auto const string_def = bp::lexeme['"' >> *(string_char - '"') > '"'];
+
+    // (10)
     auto const number_def =
         bp::raw[bp::lexeme
                     [-bp::char_('-') >>
@@ -186,8 +224,11 @@ namespace json {
     // worse still, since it moves its attribute, the callback for
     // object_element_key would always report the empty string, because the
     // string callback would have consumed it first.
+    //
+    // (11)
     auto const object_element_key_def = string_def;
 
+    // (12)
     auto const object_element_def = object_element_key > ':' > value;
 
     // This is a very straightforward way to write object_def when we know we
@@ -199,15 +240,27 @@ namespace json {
     //    auto const object_def = '{' >> object_open >>
     //                             -(object_element % ',') >
     //                            '}' >> object_close;
+    //
+    // (13)
     auto const object_open_def = '{'_l;
-    auto const object_close_def = '}'_l;
-    auto const object_def = object_open >>
-                            -(object_element % ',') > object_close;
 
+    // (14)
+    auto const object_close_def = '}'_l;
+
+    // (15)
+    auto const object_def = object_open >>
+      ( -(object_element % ',') > object_close) ;
+
+    // (16)
     auto const array_open_def = '['_l;
+
+    // (17)
     auto const array_close_def = ']'_l;
+
+    // (18)
     auto const array_def = array_open >> -(value % ',') > array_close;
 
+    // (19)
     auto const value_def = number | bool_p | null | string | array | object;
 
     BOOST_PARSER_DEFINE_RULES(
@@ -229,16 +282,17 @@ namespace json {
         array_open,
         array_close,
         array,
-        value);
+        value
+    );
 
     // The parse function loses its attribute from the return type; now the
     // return type is just bool.
+    //
     template<typename Callbacks>
-    bool parse(
-        std::string_view str,
-        std::string_view filename,
-        Callbacks const & callbacks,
-        int max_recursion = 512)
+    bool parse(std::string_view str
+               , std::string_view filename
+               , Callbacks const & callbacks
+               , int max_recursion = 512)
     {
         auto const range = boost::parser::as_utf32(str);
         using iter_t = decltype(range.begin());
@@ -247,28 +301,34 @@ namespace json {
             max_recursion = INT_MAX;
 
         global_state globals{0, max_recursion};
+
         // This is a different error handler from the json.cpp example, just
         // to show different options.
+	//
         bp::stream_error_handler error_handler(filename);
-        auto const parser = bp::with_error_handler(
-            bp::with_globals(value, globals), error_handler);
+        auto const parser = 
+	    bp::with_error_handler( bp::with_globals(value, globals), error_handler );
 
         try {
             // This is identical to the parse() call in json.cpp, except that
             // it is callback_parse() instead, and it takes the callbacks
             // parameter.
             return bp::callback_parse(range, parser, ws, callbacks);
-        } catch (excessive_nesting<iter_t> const & e) {
+        }
+	catch (excessive_nesting<iter_t> const & e)
+	{
             std::string const message = "error: Exceeded maximum number (" +
                                         std::to_string(max_recursion) +
                                         ") of open arrays and/or objects";
+	    
             bp::write_formatted_message(
-                std::cout,
-                filename,
-                range.begin(),
-                e.iter,
-                range.end(),
-                message);
+                std::cerr
+                , filename
+                , range.begin()
+                , e.iter
+                , range.end()
+                , message
+	    );
         }
 
         return {};
@@ -276,22 +336,12 @@ namespace json {
 
 }
 
-std::string file_slurp(std::ifstream & ifs)
-{
-    std::string retval;
-    while (ifs) {
-        char const c = ifs.get();
-        retval += c;
-    }
-    if (!retval.empty() && retval.back() == -1)
-        retval.pop_back();
-    return retval;
-}
 
 // This is our callbacks-struct.  It has a callback for each of the kinds of
 // callback rules in our parser.  If one were missing, you'd get a pretty
 // nasty template instantiation error.  Note that these are all const members;
 // callback_parse() takes the callbacks object by constant reference.
+//
 struct json_callbacks
 {
     void operator()(json::null_tag) const { std::cout << "JSON null value\n"; }
@@ -345,31 +395,60 @@ struct json_callbacks
         if (0 < level_bump)
             indent_ += "  ";
     }
+
+private:
     mutable std::string indent_;
 };
 
-int main(int argc, char * argv[])
+
+// make it local
+static
+std::string file_slurp(std::ifstream& ifs) noexcept(false)
 {
-    if (argc < 2) {
-        std::cerr << "A filename to parse is required.\n";
-        exit(1);
-    }
+    std::string retval;
+    ifs.exceptions(std::ifstream::goodbit);
 
+    while (ifs) {
+        char const c = ifs.get();
+        retval += c;
+    }
+    if (!retval.empty() && retval.back() == -1)
+        retval.pop_back();
+    return retval;
+}
+
+int
+main(int argc, char * argv[]) try
+{
     std::ifstream ifs(argv[1]);
-    if (!ifs) {
-        std::cerr << "Unable to read file '" << argv[1] << "'.\n";
-        exit(1);
-    }
-
+    ifs.exceptions(std::ifstream::failbit); // may throw
+    (void) ifs.get();	                    // without if: has data test.
+    ifs.seekg(0);
+ 
     std::string const file_contents = file_slurp(ifs);
     bool success = json::parse(file_contents, argv[1], json_callbacks{});
-    if (success) {
-        std::cout << "Parse successful!\n";
-    } else {
-        std::cerr << "Parse failure.\n";
-        exit(1);
+    if (!success) {
+      std::cerr << "Parse failure." << std::endl;
+      return 1;
     }
 
+    std::cout << "Parse successful!" << std::endl;
     return 0;
+}
+catch (const std::ios_base::failure& fail)
+{
+    std::string emsg = (nullptr == argv[1]) 
+    		?  "An input filename to read is required." 
+		:  "Unable to read input file: ";
+
+    std::cerr << fail.what() << std::endl
+         << emsg << (nullptr == argv[1] ? "" : argv[1] ) << std::endl;
+
+    return 1;
+}
+catch (const std::exception& e) 
+{
+  std::cerr << "exception: '" << e.what() << "'." << std::endl;
+  return 1;
 }
 //]
